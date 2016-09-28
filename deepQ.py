@@ -1,10 +1,7 @@
 import gym
 import tensorflow as tf
  
-class deep_Learner():
-	self.loss_function
-	self.training_function
-	self.current_Q
+class deep_learner():
 
 	def __init__(self,observation_space, action_space):
 		self.observation_space = observation_space
@@ -23,6 +20,10 @@ class deep_Learner():
 		#Create and ititilize session
 		self.session = tf.InteractiveSession()
 		self.session.run(tf.initialize_all_variables())
+
+		#create tensorflow graph
+		merged_summary_op = tf.merge_all_summaries()
+		summary_writer = tf.train.SummaryWriter('logs/',sess.graph)
 
 
 	def build_net(self,input_width,output_width, num_of_hidden_layers, learning_rate, gamma):
@@ -49,15 +50,16 @@ class deep_Learner():
 		next_Q = tf.placeholder(tf.float32, [None, output_width])
 
 
-		#Build the network from the layers list
+		#Build the network from the layers list skip the first 
+		#last since they are done seperately. 
 		network = tf.nn.relu(tf.matmul(current_Q, layers[0][0]) + layers[0][1])
-		for weight, bias in layers[1:]
+		for weight, bias in layers[1:-1]:
 			network = tf.nn.relu(tf.matmul(network, weight) + bias)
 		network = tf.squeeze(tf.matmul(network,layers[-1][0],layers[-1][1]))
 
 		#Build a seccond network to run double Q
 		network2 = tf.nn.relu(tf.matmul(current_Q, layers[0][0]) + layers[0][1])
-		for weight, bias in layers[1:-1]
+		for weight, bias in layers[1:-1]:
 			network2 = tf.nn.relu(tf.matmul(network, weight) + bias)
 		network2 = tf.squeeze(tf.matmul(network2,layers[-1][0],layers[-1][1]))
 		
@@ -71,7 +73,7 @@ class deep_Learner():
 
 		#Create ans save the loss and training functions
         self.loss_function = tf.reduce_mean(tf.square(current_Q_out - next_Q_out))
-		self.training_function = tf.train.AdamOptimizer(learning_rate).minimize(loss_function)
+        self.training_function = tf.train.AdamOptimizer(learning_rate).minimize(loss_function)
 
 		#Save values for later
 		self.current_Q = current_Q
@@ -84,4 +86,7 @@ class deep_Learner():
 
 		
 
+if __name__ == '__main__':
+	env = gym.make('CartPole-v1')
 
+	learner = deep_Learner(env.observation_space, env.action_space)
