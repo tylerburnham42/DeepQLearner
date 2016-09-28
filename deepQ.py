@@ -1,61 +1,87 @@
 import gym
 import tensorflow as tf
  
-sess = tf.InteractiveSession()
+class deep_Learner():
+	self.loss_function
+	self.training_function
+	self.current_Q
 
-def weight_variable(shape):
-  initial = tf.truncated_normal(shape, stddev=0.1)
-  return tf.Variable(initial)
-
-def bias_variable(shape):
-  initial = tf.constant(0.1, shape=shape)
-  return tf.Variable(initial)
-
-
-#Input
-x = tf.placeholder(tf.float32, shape=[1, 4], name="in")
-y_ = tf.placeholder(tf.float32, shape=[1, 3])
+	def __init__(self,observation_space, action_space):
+		self.observation_space = observation_space
+		self.action_space = action_space
 
 
-#Densely Connected Layer
-W_fc1 = weight_variable([4,40])
-b_fc1 = bias_variable([40])
-h_fc1 = tf.nn.relu(tf.matmul(x, W_fc1) + b_fc1)
-
-#Densely Connected Layer
-W_fc2 = weight_variable([40,40])
-b_fc2 = bias_variable([40])
-h_fc2 = tf.nn.relu(tf.matmul(h_fc1,W_fc2) + b_fc1)
+		#Build the network
+		self.build_net(self, 
+						observation_space.shape[0], 	#Input Width
+						action_space.n, 				#Output Width
+						2,								#Hidden Nodes
+						.0001, 							#Learning Rate
+						.99)  							#Gamma
 
 
-#Readout Layer
-W_fc3 = weight_variable([40, 3])
-b_fc3 = bias_variable([3])
-y_conv=tf.nn.softmax(tf.matmul(h_fc2, W_fc3) + b_fc3)
+		#Create and ititilize session
+		self.session = tf.InteractiveSession()
+		self.session.run(tf.initialize_all_variables())
 
 
-#Train and test
-cross_entropy = tf.reduce_mean(-tf.reduce_sum(y_ * tf.log(y_conv), reduction_indices=[1]))
-train_step = tf.train.AdamOptimizer(1e-4).minimize(cross_entropy)
-correct_prediction = tf.equal(tf.argmax(y_conv,1), tf.argmax(y_,1))
-accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+	def build_net(self,input_width,output_width, num_of_hidden_layers, learning_rate, gamma):
+		layers = []
+
+		#Add the input layer
+		layers.append(tf.Variable(tf.random_uniform([input_width, 128])),
+						tf.Variable(tf.random_uniform([128], -1.0, 1.0)))
+
+		#Add <num_of_hidden_layers> extra layers
+		for layer_number in num_of_hidden_layers:
+			layer.append((
+				tf.Variable(tf.random_uniform([input_width, 128])),
+				tf.Variable(tf.random_uniform([128], -1.0, 1.0))))
 
 
-sess.run(tf.initialize_all_variables())
-
-merged_summary_op = tf.merge_all_summaries()
-summary_writer = tf.train.SummaryWriter('logs/',sess.graph)
-
+		#Add the input layer
+		layers.append(tf.Variable(tf.random_uniform([128, output_width])),
+						tf.Variable(tf.random_uniform([output_width], -1.0, 1.0)))
 
 
-#for i in range(1000):
-#  batch = mnist.train.next_batch(50)
-#  if i%10 == 0:
-#    train_accuracy = accuracy.eval(feed_dict={
-#        x:batch[0], y_: batch[1], keep_prob: 1.0})
-#    print("step %d, training accuracy %g"%(i, train_accuracy))
-#  train_step.run(feed_dict={x: batch[0], y_: batch[1], keep_prob: 0.5})
-#
-#print("test accuracy %g"%accuracy.eval(feed_dict={
-#    x: mnist.test.images, y_: mnist.test.labels, keep_prob: 1.0}))
+		#Define the current Q values
+		current_Q = tf.placeholder(tf.float32, [None, input_width])
+		next_Q = tf.placeholder(tf.float32, [None, output_width])
+
+
+		#Build the network from the layers list
+		network = tf.nn.relu(tf.matmul(current_Q, layers[0][0]) + layers[0][1])
+		for weight, bias in layers[1:]
+			network = tf.nn.relu(tf.matmul(network, weight) + bias)
+		network = tf.squeeze(tf.matmul(network,layers[-1][0],layers[-1][1]))
+
+		#Build a seccond network to run double Q
+		network2 = tf.nn.relu(tf.matmul(current_Q, layers[0][0]) + layers[0][1])
+		for weight, bias in layers[1:-1]
+			network2 = tf.nn.relu(tf.matmul(network, weight) + bias)
+		network2 = tf.squeeze(tf.matmul(network2,layers[-1][0],layers[-1][1]))
+		
+		#Get the output Q
+		current_Q_out_mask = tf.placeholder(tf.float32, [None, output_width])
+		current_Q_out = tf.reduce_sum(tf.mul(network, current_Q_out_mask), reduction_indices=1)
+		
+		#Get the output of Q next
+		prev_rewards = tf.placeholder(tf.float32, [None, ])
+		next_Q_out = prev_rewards + gamma * tf.reduce_max(network2, reduction_indices=1)
+
+		#Create ans save the loss and training functions
+        self.loss_function = tf.reduce_mean(tf.square(current_Q_out - next_Q_out))
+		self.training_function = tf.train.AdamOptimizer(learning_rate).minimize(loss_function)
+
+		#Save values for later
+		self.current_Q = current_Q
+		self.current_Q_out_mask = current_Q_out_mask
+		self.prev_rewards = prev_rewards
+		self.next_Q = next_Q
+		self.network = network
+
+
+
+		
+
 
