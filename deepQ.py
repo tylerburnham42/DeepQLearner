@@ -1,5 +1,10 @@
 import gym
 import tensorflow as tf
+import math
+import random
+
+REPLAY_MEMORY = 1000000
+BATCH_SIZE = 32
  
 class deep_learner():
 
@@ -11,6 +16,8 @@ class deep_learner():
         self.epislon = .99
         self.epislon_decay_time = 100
         self.epislon_decay_rate = 0.95
+
+        self.replayMemory = []
 
 
         #Build the network
@@ -103,22 +110,46 @@ class deep_learner():
 
 
     def get_action(self, observation, reward, done):
+        action = None
 
         if(self.step % self.epislon == 0):
             self.epislon *= self.epislon_decay_rate
 
         #Should we explore?
         if self.epislon > math.random():
+            #We should explore
             action = self.action_space.sample()
-        #We sould not explore
         else:
+            #We sould not explore
             observed_state = np.array([observation])
-            action = self.QValue.eval(feed_dict={self.stateInput:[self.currentState]})
+            action = np.argmax(self.QValue.eval(feed_dict={self.stateInput:[self.currentState]}))
+
+        return action
+
+    def add_memory(self, observation, action, reward, done):
+        newState = np.append(observation,self.currentState[:,:,1:],axis = 2)
+        self.replayMemory.append((self.currentState,action,reward,newState,done))
+
+        if len(self.replayMemory) > REPLAY_MEMORY:
+            self.replayMemory.pop(0)
+
+        self.step += 1
+
+    def setInitState(self,observation):
+        self.currentState = np.stack((observation, observation, observation, observation), axis = 2)
 
 
     def train(self):
-        pass
+        if(len(self.replayMemory) < BATCH_SIZE):
+            return
 
+        batch = np.random.choice( self.replayMemory, BATCH_SIZE, replace=True)
+
+        commands = [self.loss,self.training]
+
+        feed_dictionary = {currentState: batch[0], action: batch[1], reward: batch[2], newState: batch[3], done: batch[4]}
+
+        self.session.run(commands, feed_dict=feed_dictionary)
 		
     def reset():
         self.prev_state
@@ -127,28 +158,31 @@ if __name__ == '__main__':
     env = gym.make('CartPole-v1')
     learner = deep_learner(env.observation_space, env.action_space)
 
-    # max_runs = 100
-    # max_frames = 50
+    max_runs = 100
+    max_frames = 50
 
-    # for run in xrange(max_runs):
-    #         observation = env.reset()
-    #         reward = 0.0
-    #         finished = False
+    for run in xrange(max_runs):
+            observation = env.reset()
+            reward = 0.0
+            done = False
 
-    #         best_reward = 0
+            best_reward = 0
 
-    #         for frame in xrange(max_frames):
-    #             action = learner.act(observation, reward, done)
+            for frame in xrange(max_frames):
+                action = learner.get_action(observation, reward, done)
 
-    #             #Calculate the running average
-    #             #running_avg = (running_avg * (frame-1)/frame + reward/frame)
+                #Calculate the running average
+                #running_avg = (running_avg * (frame-1)/frame + reward/frame)
 
 
-    #             if finished or frame == max_frames:
-    #                 print "{0} - {1} - {2}".format(run, frame, best_reward)
-    #                 break
+                if done or frame == max_frames:
+                    print "{0} - {1} - {2}".format(run, frame, best_reward)
+                    break
 
-    #             observation, reward, done, info = env.step(action)
-    #             best_reward+=reward
+                observation, reward, done, info = env.step(action)
+                learner.add_memory(observation, reward, done)
+                best_reward+=reward
+
+            learner.train()
 
                 
