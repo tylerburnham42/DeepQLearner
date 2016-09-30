@@ -2,6 +2,7 @@ import gym
 import tensorflow as tf
 import math
 import random
+import numpy as np
 
 REPLAY_MEMORY = 1000000
 BATCH_SIZE = 32
@@ -96,80 +97,100 @@ class deep_learner():
 
 
         #Setup Training And Loss Functions
-        actionInput = tf.placeholder(tf.float32, [None, output_width])
-        Q_Action = tf.reduce_sum(tf.mul(QValue, actionInput), reduction_indices=1)
+        self.actionInput = tf.placeholder(tf.float32, [None, output_width])
+        Q_Action = tf.reduce_sum(tf.mul(QValue, self.actionInput), reduction_indices=1)
 
-        self.yInput = tf.placeholder(tf.float32, [None, ])
+        self.action_choice = tf.placeholder(tf.float32, [None, ])
 
-        self.loss = tf.reduce_mean(tf.square(Q_Action - self.yInput))
+        self.loss = tf.reduce_mean(tf.square(self.action_choice - Q_Action))
         self.training = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
 
         #Save values for later
+        self.inwT = inwT
         self.stateInput = stateInput
         self.QValue = QValue
 
 
-    def get_action(self, observation, reward, done):
+    def get_action(self, observation):
         action = None
 
         if(self.step % self.epislon == 0):
             self.epislon *= self.epislon_decay_rate
 
         #Should we explore?
-        if self.epislon > math.random():
+        if self.epislon > random.random():
             #We should explore
             action = self.action_space.sample()
         else:
             #We sould not explore
-            observed_state = np.array([observation])
-            action = np.argmax(self.QValue.eval(feed_dict={self.stateInput:[self.currentState]}))
+            l = []
+            l.extend(observation)
+            #observed_state = np.array([observation])
+            action = self.QValue.eval(feed_dict={self.stateInput:[l]})
+            action = np.argmax(action)
 
         return action
 
-    def add_memory(self, observation, action, reward, done):
-        newState = np.append(observation,self.currentState[:,:,1:],axis = 2)
-        self.replayMemory.append((self.currentState,action,reward,newState,done))
+    def add_memory(self,observation, new_observation, action, reward):
+        self.replayMemory.append((observation, action, reward, new_observation))
 
         if len(self.replayMemory) > REPLAY_MEMORY:
             self.replayMemory.pop(0)
 
         self.step += 1
 
-    def setInitState(self,observation):
-        self.currentState = np.stack((observation, observation, observation, observation), axis = 2)
-
 
     def train(self):
+        print("Train!")
         if(len(self.replayMemory) < BATCH_SIZE):
+            print("Too Small!")
             return
 
-        batch = np.random.choice( self.replayMemory, BATCH_SIZE, replace=True)
+        minibatch = random.sample(self.replayMemory,BATCH_SIZE)
+        state_batch = [data[0] for data in minibatch]
+        action_batch = [data[1] for data in minibatch]
+        reward_batch = [data[2] for data in minibatch]
+        nextState_batch = [data[3] for data in minibatch]
 
-        commands = [self.loss,self.training]
+        y_batch = []
+        QValue_batch = self.inwT.eval(feed_dict={self.stateInputT:nextState_batch})
+        for i in range(0,BATCH_SIZE):
+            terminal = minibatch[i][4]
+            if terminal:
+                y_batch.append(reward_batch[i])
+            else:
+                y_batch.append(reward_batch[i] + GAMMA * np.max(QValue_batch[i]))
 
-        feed_dictionary = {currentState: batch[0], action: batch[1], reward: batch[2], newState: batch[3], done: batch[4]}
 
-        self.session.run(commands, feed_dict=feed_dictionary)
+        self.trainStep.run(feed_dict={
+            self.yInput : y_batch,
+            self.actionInput : action_batch,
+            self.stateInput : state_batch
+            })
+
+        self.training.run(feed_dict=batch)
 		
     def reset():
         self.prev_state
 
 if __name__ == '__main__':
-    env = gym.make('CartPole-v1')
+    env = gym.make('CartPole-v0')
     learner = deep_learner(env.observation_space, env.action_space)
 
-    max_runs = 100
-    max_frames = 50
+    max_runs = 1000
+    max_frames = 5000
 
     for run in xrange(max_runs):
             observation = env.reset()
+            print(observation)
             reward = 0.0
             done = False
 
             best_reward = 0
 
             for frame in xrange(max_frames):
-                action = learner.get_action(observation, reward, done)
+                env.render()
+                action = learner.get_action(observation)
 
                 #Calculate the running average
                 #running_avg = (running_avg * (frame-1)/frame + reward/frame)
@@ -179,8 +200,8 @@ if __name__ == '__main__':
                     print "{0} - {1} - {2}".format(run, frame, best_reward)
                     break
 
-                observation, reward, done, info = env.step(action)
-                learner.add_memory(observation, reward, done)
+                new_observation, reward, done, info = env.step(action)
+                learner.add_memory(observation, new_observation, action, reward)
                 best_reward+=reward
 
             learner.train()
