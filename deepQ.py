@@ -3,6 +3,8 @@ import tensorflow as tf
 import math
 import random
 import numpy as np
+import keras as K
+
 
 REPLAY_MEMORY = 1000000
 BATCH_SIZE = 32
@@ -42,74 +44,14 @@ class deep_learner():
     def build_net(self,input_width,output_width, num_of_hidden_layers, learning_rate):
 
         #Create a list to hold the weights and biases
-        layers = []
+        model = K.models.Sequential()
+        model.add(K.layers.core.Dense(16, activation='relu', input_dim=(None,input_width)))
+        model.add(K.layers.core.Dense(16, activation='relu'))
+        model.add(K.layers.core.Dense(output_width, activation='relu'))
 
-        with tf.name_scope('Input_Vars') as scope:
+        model.compile('adam', loss = 'mse')
 
-            inw = tf.Variable(tf.random_uniform([input_width, 128]))
-            inb = tf.Variable(tf.random_uniform([128], -1.0, 1.0))
-
-            l1w = tf.Variable(tf.random_uniform([128, 128]))
-            l1b = tf.Variable(tf.random_uniform([128], -1.0, 1.0))
-
-            l2w = tf.Variable(tf.random_uniform([128, 128]))
-            l2b = tf.Variable(tf.random_uniform([128], -1.0, 1.0))
-            
-            outw = tf.Variable(tf.random_uniform([128, output_width]))
-            outb = tf.Variable(tf.random_uniform([output_width], -1.0, 1.0))
-
-        with tf.name_scope('Input_Vars_2') as scope:
-
-            inwT = tf.Variable(tf.random_uniform([input_width, 128]))
-            inbT = tf.Variable(tf.random_uniform([128], -1.0, 1.0))
-
-            l1wT = tf.Variable(tf.random_uniform([128, 128]))
-            l1bT = tf.Variable(tf.random_uniform([128], -1.0, 1.0))
-
-            l2wT = tf.Variable(tf.random_uniform([128, 128]))
-            l2bT = tf.Variable(tf.random_uniform([128], -1.0, 1.0))
-            
-            outwT = tf.Variable(tf.random_uniform([128, output_width]))
-            outbT = tf.Variable(tf.random_uniform([output_width], -1.0, 1.0))
-
-
-        self.copyOperation = [inwT.assign(inw),
-                                inbT.assign(inb),
-                                l1wT.assign(l1w),
-                                l1bT.assign(l1b),
-                                l2wT.assign(l2w),
-                                l2bT.assign(l2b),
-                                outwT.assign(outw),
-                                outbT.assign(outb)]
-
-
-        print("Built weights and biases")
-
-
-        #Define the current Q values
-        stateInput = tf.placeholder(tf.float32, [None, input_width])
-
-        layer_in = tf.nn.relu(tf.matmul(stateInput, inw) + inb)
-        layer_1 = tf.nn.relu(tf.matmul(layer_in, l1w) + l1b)
-        layer_2 = tf.nn.relu(tf.matmul(layer_1, l2w) + l2b)
-        QValue = tf.squeeze(tf.matmul(layer_2, outw) + outb)
-
-
-
-        #Setup Training And Loss Functions
-        self.actionInput = tf.placeholder(tf.float32, [None, output_width])
-        Q_Action = tf.reduce_sum(tf.mul(QValue, self.actionInput), reduction_indices=1)
-
-        self.action_choice = tf.placeholder(tf.float32, [None, ])
-
-        self.loss = tf.reduce_mean(tf.square(self.action_choice - Q_Action))
-        self.training = tf.train.AdamOptimizer(learning_rate).minimize(self.loss)
-
-        #Save values for later
-        self.inwT = inwT
-        self.stateInput = stateInput
-        self.QValue = QValue
-
+        return model
 
     def get_action(self, observation):
         action = None
