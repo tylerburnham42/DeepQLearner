@@ -1,3 +1,4 @@
+from __future__ import division
 import gym
 import tensorflow as tf
 import math
@@ -7,9 +8,8 @@ import keras
 import os
 
 
-
-REPLAY_MEMORY = 1000000
-BATCH_SIZE = 100
+REPLAY_MEMORY = 100000
+BATCH_SIZE = 10
  
 class deep_learner():
 
@@ -21,8 +21,7 @@ class deep_learner():
 
         self.step = 0
         self.epislon = .99
-        self.epislon_decay_time = 100
-        self.epislon_decay_rate = 0.999
+        self.epislon_decay_rate = 0.99
         self.gamma = .99
 
         self.replayMemory = []
@@ -34,9 +33,9 @@ class deep_learner():
         #Build the network
         self.model = self.build_net( self.input_width,              #Input Width
                                      self.output_width,             #Output Width
-                                     32)                            #Hidden Nodes)
+                                     200)                           #Hidden Nodes)
 
-        self.load_weights()
+        #self.load_weights()
 
 
         #Create and ititilize session
@@ -45,23 +44,17 @@ class deep_learner():
         self.session.run(tf.initialize_all_variables())
 
 
-
-        keras.callbacks.TensorBoard(log_dir='./logs', histogram_freq=5, write_graph=True, write_images=False)
-
-
     def build_net(self, input_width, output_width, hidden_nodes):
 
         #Add the layers to the network
         model = keras.models.Sequential()
         model.add(keras.layers.core.Dense(hidden_nodes, activation='relu', input_dim=input_width))
+        model.add(keras.layers.core.Dense(hidden_nodes, activation='relu'))
         #model.add(keras.layers.core.Dense(hidden_nodes, activation='relu'))
         model.add(keras.layers.core.Dense(output_width, activation='relu'))
 
         #Build the network with the atom optimizer and mse loss
         model.compile('adam', loss = 'mse')
-
-        self.cbks = [callbacks.ModelCheckpoint(filepath, monitor=monitor,
-                save_best_only=save_best_only, mode=mode)]
 
         return model
 
@@ -69,7 +62,7 @@ class deep_learner():
         action = None
 
         #print(self.epislon)
-        self.epislon = 0
+        self.epislon *= self.epislon_decay_rate
 
         #Should we explore?
         if self.epislon > random.random():
@@ -104,68 +97,73 @@ class deep_learner():
         self.model.save_weights(self.weight_file)
 
 
+    def updateTargetQ():
+        pass
+
     def train(self):
 
         batch_size = min(len(self.replayMemory),BATCH_SIZE)
 
-        mini_batch = random.sample(self.replayMemory,batch_size)
+        mini_batch = random.sample(self.replayMemory, batch_size)
         X_train = np.zeros((batch_size, self.input_width))
         Y_train = np.zeros((batch_size, self.output_width))
+        #print(X_train)
+        #print(Y_train)
         loss = 0
         for index_rep in range(batch_size):
-          old_rep_state, new_rep_state, action_rep, reward_rep, done_rep  = mini_batch[index_rep]
-          old_q = self.model.predict(old_rep_state.reshape(1, self.input_width))[0]
-          new_q = self.model.predict(new_rep_state.reshape(1, self.input_width))[0]
-          update_target = np.copy(old_q)
+          old_state, new_state, action_rep, reward_rep, done_rep  = mini_batch[index_rep]
+          #print(old_state, new_state, action_rep, reward_rep, done_rep)
+
+          update_target = np.copy(self.model.predict(old_state.reshape(1, self.input_width))[0])
+          #print("update_target",update_target)
+
           if done_rep:
-            update_target[action_rep] = -1
+            update_target[action_rep] = reward_rep
           else:
-            update_target[action_rep] = reward_rep + (self.gamma * np.max(new_q))
-          X_train[index_rep] = old_rep_state
+            update_target[action_rep] = reward_rep + (self.gamma 
+                * np.max(self.model.predict(new_state.reshape(1, self.input_width))[0]))
+
+          #print('update_target2',update_target)
+          X_train[index_rep] = old_state
           Y_train[index_rep] = update_target
+
         
-        loss += self.model.train_on_batch(X_train, Y_train, callbacks=self.cbks)
+        loss += self.model.train_on_batch(X_train, Y_train)
 
         return loss
 
-    def variable_summaries(var, name):
-      """Attach a lot of summaries to a Tensor."""
-      with tf.name_scope('summaries'):
-        mean = tf.reduce_mean(var)
-        tf.scalar_summary('mean/' + name, mean)
-        with tf.name_scope('stddev'):
-          stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
-        tf.scalar_summary('stddev/' + name, stddev)
-        tf.scalar_summary('max/' + name, tf.reduce_max(var))
-        tf.scalar_summary('min/' + name, tf.reduce_min(var))
-        tf.histogram_summary(name, var)
-
 
 if __name__ == '__main__':
-    env = gym.make('CartPole-v0')
+    env = gym.make('CartPole-v1')
+    env.monitor.start('/tmp/cartpole-experiment-1', force=True)
+
     learner = deep_learner(env.observation_space, env.action_space, "weights.txt")
 
-    max_runs = 1000000
+    max_runs = 1000
     max_frames = 500
+
+    score = [1]
 
     for run in xrange(max_runs):
             observation = env.reset()
             reward = 0
             done = False
             best_reward = 0
+            running_avg = sum(score)/len(score)
 
 
             for frame in xrange(max_frames):
-                env.render()
+                if(frame == max_frames-1):
+                    print("Finished Run!")
+                #env.render()
                 action = learner.get_action(observation)
                 
 
                 #Calculate the running average
-                #running_avg = (running_avg * (frame-1)/frame + reward/frame)
+                
 
-
-                if done or frame == max_frames-1:
-                    print "{0} - {1}".format(run, frame)
+                if done:
+                    print "{0} - {1} - {2}".format(run, frame, running_avg)
                     break
 
                 new_observation, reward, done, info = env.step(action)
@@ -173,11 +171,23 @@ if __name__ == '__main__':
 
                 observation = new_observation
                 best_reward += reward
+                
 
-            print("loss", learner.train())
 
-            if(run%100 == 0):
-                learner.save_weights()
+                learner.train()
+
+
+            
+            score.append(best_reward)
+
+
+            if(len(score)>100):
+                score.pop(0)
+
+            #if(run%100 == 0):
+            #    learner.save_weights()
 
     print("Saving weights and quitting")
     learner.save_weights()
+
+    env.monitor.close()
