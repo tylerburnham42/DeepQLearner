@@ -6,10 +6,24 @@ import random
 import numpy as np
 import keras
 import os
+import pprint
+pp = pprint.PrettyPrinter(indent=4)
 
 REPLAY_MEMORY = 1000000
-BATCH_SIZE = 100
-EPISLON_MIN = .1
+BATCH_SIZE = 1000
+EPISLON_MIN = .05
+NUM_OF_NODES = 200
+TRAINS_UNTILL_COPY = 1000
+START_EPISLON = .99
+EPISLON_DECAY = .99995
+GAMMA = .99
+
+MAX_RUNS = 30000
+MAX_FRAMES = 199
+
+PRINT_TRAIN = 1000
+PRINT_RENDER = 1000
+
 
 
 class deep_learner():
@@ -19,9 +33,8 @@ class deep_learner():
         self.action_space = action_space
         self.weight_file = weight_file
         self.step = 0
-        self.epislon = .99
-        self.epislon_decay_rate = 0.9995
-        self.gamma = .99
+        self.epislon = START_EPISLON
+
         self.replayMemory = []
         self.input_width = observation_space.shape[0]
         self.output_width = action_space.n
@@ -29,12 +42,27 @@ class deep_learner():
         # Build the network
         self.model = self.build_net(self.input_width,   # Input Width
                                     self.output_width,  # Output Width
-                                    200)                # Hidden Nodes
+                                    NUM_OF_NODES)       # Hidden Nodes
+
+        self.model_prime = self.build_net(self.input_width,   # Input Width
+                                    self.output_width,        # Output Width
+                                    NUM_OF_NODES)             # Hidden Nodes
+
+
+        self.model_prime.set_weights(self.model.get_weights())
+
+        self.current_weights = self.model.get_weights()
+        self.target_weights = self.model.get_weights()
 
         # Create and ititilize session
         print("Start session and initialize all variables")
         self.session = tf.InteractiveSession()
         self.session.run(tf.initialize_all_variables())
+
+    def update_weights(self):
+        self.model
+
+
 
     def build_net(self, input_width, output_width, hidden_nodes):
 
@@ -52,7 +80,7 @@ class deep_learner():
     def get_action(self, observation):
         action = None
 
-        self.epislon *= self.epislon_decay_rate
+        self.epislon *= EPISLON_DECAY
         if(self.epislon < EPISLON_MIN):
             self.epislon = EPISLON_MIN
 
@@ -69,13 +97,11 @@ class deep_learner():
         return action
 
     def add_memory(self, observation, new_observation, action, reward, done):
-        self.replayMemory.append((observation, new_observation,
-                                  action, reward, done))
+        self.replayMemory.append((observation, new_observation, action, reward, done))
 
         if len(self.replayMemory) > REPLAY_MEMORY:
             self.replayMemory.pop(0)
 
-        self.step += 1
 
     def load_weights(self):
         if os.path.isfile(self.weight_file):
@@ -92,55 +118,86 @@ class deep_learner():
         return self.epislon
 
     def train(self):
+        
 
+        if(len(self.replayMemory) < 10):
+            return
+
+        #Calculate the batch size from min(current array size or Batch_Size)
         batch_size = min(len(self.replayMemory), BATCH_SIZE)
 
-        mini_batch = random.sample(self.replayMemory, batch_size)
-        X_train = np.zeros((batch_size, self.input_width))
-        Y_train = np.zeros((batch_size, self.output_width))
-        loss = 0
-        for index_rep in range(batch_size):
-            old_state, new_state, action_rep, \
-                reward_rep, done_rep = mini_batch[index_rep]
+        #Get a random sample from memory.
+        mini_batch = np.array(random.sample(self.replayMemory, batch_size))
 
-            update_target = np.copy(self.model.predict(
-                old_state.reshape(1, self.input_width))[0])
 
-            if done_rep:
-                update_target[action_rep] = reward_rep
-            else:
-                update_target[action_rep] = reward_rep + (
-                    self.gamma * np.max(self.model.predict(
-                        new_state.reshape(1, self.input_width))[0]))
+        input_batch = np.vstack(mini_batch[:,0])
+        reward_batch = np.vstack(mini_batch[:,1])
+        #print("Input")
+        #pp.pprint(input_batch)
 
-            X_train[index_rep] = old_state
-            Y_train[index_rep] = update_target
 
-        loss += self.model.train_on_batch(X_train, Y_train)
+        output_train = np.zeros((batch_size, self.output_width))
 
-        return loss
+        this_reward = self.model_prime.predict(reward_batch, batch_size=batch_size)
+        #if(self.step % PRINT_TRAIN == 0):
+        #    print("This Reward")
+        #    pp.pprint(this_reward)
 
+        
+        new_reward = reward + np.multiply(GAMMA, this_reward)
+        #if(self.step % PRINT_TRAIN == 0):
+        #    print("New Reward")
+        #    pp.pprint(new_reward)
+
+        indexes = np.argmax(new_reward, axis=1)
+        #if(self.step % PRINT_TRAIN == 0):
+        #    print("indexes")
+        #    pp.pprint(indexes)
+
+        for index in xrange(len(this_reward)):
+            max_action = indexes[index]
+            output_train[index][max_action] = new_reward[index][max_action]           
+
+        if(self.step % PRINT_TRAIN == 0):
+            print("Output Train")
+            pp.pprint(output_train)
+
+        self.model.train_on_batch(input_batch, output_train)
+
+        if(self.step % TRAINS_UNTILL_COPY == 0):
+            #self.copy_weights(self.model, self.model_prime)
+            self.model_prime.set_weights(self.model.get_weights())
+
+        self.step += 1
+ 
+
+    def copy_weights(self, model_source, model_target):
+        model_source.set_weights(model_target.get_weights())
+        print("Updated Weights!")
 
 if __name__ == '__main__':
     env = gym.make('CartPole-v0')
     env.monitor.start('/tmp/cartpole-experiment-1', force=True)
     learner = deep_learner(env.observation_space,
                            env.action_space, "weights.txt")
-    max_runs = 1001
-    max_frames = 199
+
     score = [1]
 
-    for run in xrange(max_runs):
+    for run in xrange(MAX_RUNS):
             observation = env.reset()
             reward = 0
             done = False
             best_reward = 0
             running_avg = sum(score)/len(score)
 
-            for frame in xrange(max_frames):
-                if(frame == max_frames-1):
+
+            for frame in xrange(MAX_FRAMES):
+                if(frame == MAX_FRAMES-1):
                     print("Finished Run!")
-                # env.render()
+
+                if(run % PRINT_RENDER == 0):
+                    env.render()
+
                 action = learner.get_action(observation)
                 if done:
                     print "{0} - {1} - {2:.2f} - {3:.2f}".format(
