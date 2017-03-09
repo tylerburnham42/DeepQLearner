@@ -1,11 +1,12 @@
-from __future__ import division
-import gym
-import tensorflow as tf
-import math
-import random
-import numpy as np
-import keras
 import os
+import random
+
+import gym
+from gym import wrappers
+import keras
+import numpy as np
+import tensorflow as tf
+
 
 REPLAY_MEMORY = 1000000
 BATCH_SIZE = 100
@@ -34,7 +35,8 @@ class deep_learner():
         # Create and ititilize session
         print("Start session and initialize all variables")
         self.session = tf.InteractiveSession()
-        self.session.run(tf.initialize_all_variables())
+        initializer = tf.global_variables_initializer()
+        self.session.run(initializer)
 
     def build_net(self, input_width, output_width, hidden_nodes):
 
@@ -123,28 +125,25 @@ class deep_learner():
 
 if __name__ == '__main__':
     env = gym.make('CartPole-v0')
-    env.monitor.start('/tmp/cartpole-experiment-1', force=True)
+    env = wrappers.Monitor(env, '/tmp/cartpole-experiment-1', force=True)
     learner = deep_learner(env.observation_space,
                            env.action_space, "weights.txt")
     max_runs = 1001
-    max_frames = 199
     score = [1]
 
-    for run in xrange(max_runs):
+    for run in range(max_runs):
             observation = env.reset()
             reward = 0
             done = False
             best_reward = 0
             running_avg = sum(score)/len(score)
+            frame = 0
 
-            for frame in xrange(max_frames):
-                if(frame == max_frames-1):
-                    print("Finished Run!")
-                # env.render()
+            while True:
                 action = learner.get_action(observation)
                 if done:
-                    print "{0} - {1} - {2:.2f} - {3:.2f}".format(
-                        run, frame, running_avg, learner.get_epislon())
+                    print("{0} - {1} - {2:.2f} - {3:.2f}".format(
+                        run, frame, running_avg, learner.get_epislon()))
                     break
 
                 new_observation, reward, done, info = env.step(action)
@@ -155,6 +154,8 @@ if __name__ == '__main__':
                 best_reward += reward
 
                 learner.train()
+                frame += 1
+
             score.append(best_reward)
 
             if(len(score) > 100):
@@ -162,5 +163,5 @@ if __name__ == '__main__':
 
     print("Saving weights and quitting")
     learner.save_weights()
+    env.close()
 
-    env.monitor.close()
